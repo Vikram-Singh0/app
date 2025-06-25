@@ -32,6 +32,7 @@ export default function Page() {
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [settleFriendId, setSettleFriendId] = useState<string | null>(null);
+  const [settleFriendGroupId, setSettleFriendGroupId] = useState<string | null>(null);
   const [isSettling, setIsSettling] = useState(false);
   const { isConnected, address } = useWallet();
   const { data: groups = [], isLoading: isGroupsLoading } = useGetAllGroups();
@@ -79,13 +80,33 @@ export default function Page() {
       queryClient.invalidateQueries({ queryKey: [QueryKeys.BALANCES] });
       queryClient.invalidateQueries({ queryKey: [QueryKeys.GROUPS] });
       queryClient.invalidateQueries({ queryKey: [QueryKeys.ANALYTICS] });
+      queryClient.invalidateQueries({ queryKey: [QueryKeys.FRIENDS] });
       setIsSettling(false);
     }, 500);
   };
 
   const handleSettleFriendClick = (friendId: string) => {
+    // Find the group where the user owes this friend
+    let foundGroupId: string | null = null;
+    if (groups && groups.length > 0) {
+      for (const group of groups) {
+        if (group.groupBalances && user) {
+          const userBalance = group.groupBalances.find(
+            (b) => b.userId === user.id && b.firendId === friendId && b.amount > 0
+          );
+          if (userBalance) {
+            foundGroupId = group.id;
+            break;
+          }
+        }
+      }
+    }
     setSettleFriendId(friendId);
+    setSettleFriendGroupId(foundGroupId);
     setIsSettleModalOpen(true);
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: [QueryKeys.FRIENDS] });
+    }, 500);
   };
 
   return (
@@ -499,6 +520,7 @@ export default function Page() {
         onClose={() => setIsSettleModalOpen(false)}
         showIndividualView={settleFriendId !== null}
         selectedFriendId={settleFriendId}
+        groupId={settleFriendId ? settleFriendGroupId || "" : (groups && groups[0]?.id) || ""}
       />
 
       <AddFriendsModal

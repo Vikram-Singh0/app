@@ -1,13 +1,20 @@
 "use client";
 
 import { X, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useWallet } from "@/hooks/useWallet";
 import { motion, AnimatePresence } from "framer-motion";
 import { fadeIn, scaleIn } from "@/utils/animations";
 import { toast } from "sonner";
 import { useUpdateUser } from "@/features/user/hooks/use-update-profile";
 import { useAuthStore } from "@/stores/authStore";
+import {
+  StellarWalletsKit,
+  WalletNetwork,
+  allowAllModules,
+  XBULL_ID,
+} from "@creit.tech/stellar-wallets-kit";
+import { useAddWallet } from "@/features/wallets/hooks/use-wallets";
 
 interface ConnectWalletModalProps {
   isOpen: boolean;
@@ -18,35 +25,36 @@ export function ConnectWalletModal({
   isOpen,
   onClose,
 }: ConnectWalletModalProps) {
-  const { address, connectWallet, disconnectWallet, isConnected } = useWallet();
+  const { address, connectWallet, disconnectWallet, isConnected, isConnecting } = useWallet();
+  const { mutate: addWallet } = useAddWallet();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const updateUser = useUpdateUser();
   const user = useAuthStore((state) => state.user);
+
+  useEffect(() => {
+    if (isOpen) {
+      console.log('[ConnectWalletModal] Modal opened');
+    }
+  }, [isOpen]);
+
+  const handleConnectClick = async () => {
+    console.log('[ConnectWalletModal] Connect button clicked, calling connectWallet');
+    try {
+      await connectWallet();
+      console.log('[ConnectWalletModal] connectWallet resolved');
+    } catch (err) {
+      console.error('[ConnectWalletModal] connectWallet threw error:', err);
+    }
+  };
 
   const handleSaveWallet = async () => {
     if (!address) {
       toast.error("Please connect your wallet first");
       return;
     }
-
-    if (!user) {
-      toast.error("Please log in first");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await updateUser.mutateAsync({
-        stellarAccount: address,
-      });
-
-      toast.success("Wallet connected successfully!");
-      onClose();
-    } catch (error) {
-      toast.error("Failed to connect wallet. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    addWallet({ chainId: "stellar", address });
+    toast.success("Wallet connected successfully!");
+    onClose();
   };
 
   return (
@@ -90,18 +98,15 @@ export function ConnectWalletModal({
 
                 <div className="space-y-4">
                   <motion.button
-                    onClick={() => {
-                      if (!isConnected) {
-                        connectWallet();
-                      } else {
-                        disconnectWallet();
-                      }
-                    }}
+                    onClick={handleConnectClick}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     className="w-full h-[42px] rounded-[15px] bg-[#1F1F23] text-sm font-medium text-white hover:bg-[#2a2a2e] transition-colors border border-white/75 flex items-center justify-center gap-2"
+                    disabled={isConnecting}
                   >
-                    {isConnected && address
+                    {isConnecting
+                      ? "Connecting..."
+                      : isConnected && address
                       ? "Disconnect Wallet"
                       : "Connect Wallet"}
                   </motion.button>

@@ -24,6 +24,7 @@ import { useUploadFile } from "@/features/files/hooks/use-balances";
 import { ConnectWalletModal } from "./connect-wallet-modal";
 import ResolverSelector from "./ResolverSelector";
 import type { Option } from "./ResolverSelector";
+import { useUserWallets, useAddWallet } from "@/features/wallets/hooks/use-wallets";
 
 // Currency options
 const CURRENCIES = [
@@ -53,6 +54,8 @@ export function UserSettingsForm({ user }: { user: User }) {
     isConnecting,
     connectWallet,
     disconnectWallet,
+    freighterAvailable,
+    isHydrated,
   } = useWallet();
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
@@ -60,11 +63,13 @@ export function UserSettingsForm({ user }: { user: User }) {
   const [stellarError, setStellarError] = useState<string | null>(null);
   const [showConnectWalletModal, setShowConnectWalletModal] = useState(false);
   const [resolver, setResolver] = useState<Option | undefined>(undefined);
+  const { data: walletData } = useUserWallets();
+  const wallets = walletData?.accounts || [];
+  const { mutate: addWallet } = useAddWallet();
 
   const [formData, setFormData] = useState<UserDetailsWithTimeLock>({
     name: user.name || "",
     image: user.image || "",
-    stellarAccount: user.stellarAccount || "",
     currency: user.currency || "USD",
     timeLockInDefault: false,
   });
@@ -72,7 +77,6 @@ export function UserSettingsForm({ user }: { user: User }) {
   // Update the form with wallet address when connected
   useEffect(() => {
     if (isConnected && address) {
-      setFormData((prev) => ({ ...prev, stellarAccount: address }));
       setStellarError(null);
     }
   }, [isConnected, address]);
@@ -103,8 +107,7 @@ export function UserSettingsForm({ user }: { user: User }) {
 
     // Validate Stellar account before submission
     if (
-      formData.stellarAccount &&
-      !validateStellarAccount(formData.stellarAccount)
+      !validateStellarAccount(address)
     ) {
       toast.error("Invalid Stellar account format", {
         description: stellarError,
@@ -128,19 +131,11 @@ export function UserSettingsForm({ user }: { user: User }) {
     // If no custom image is set, use DiceBear
     if (!formData.image || formData.image.trim() === "") {
       updateData.image = `https://api.dicebear.com/9.x/identicon/svg?seed=${
-        user.id || formData.stellarAccount || "user"
+        user.id || address || "user"
       }`;
     } else if (!isDiceBearImage(formData.image)) {
       // Only include the image if it's a custom image (not DiceBear)
       updateData.image = formData.image;
-    }
-
-    if (
-      formData.stellarAccount !== undefined &&
-      formData.stellarAccount !== null &&
-      formData.stellarAccount.trim() !== ""
-    ) {
-      updateData.stellarAccount = formData.stellarAccount;
     }
 
     if (formData.currency) {
@@ -159,14 +154,18 @@ export function UserSettingsForm({ user }: { user: User }) {
     console.log("Submitting profile update with data:", updateData);
 
     updateUser(updateData, {
-      onSuccess: () => {
+      onSuccess: (updatedUser) => {
+        console.log("Profile updated successfully:", updatedUser);
         toast.dismiss(loadingToast);
-        toast.success("Profile updated successfully");
+        toast.success("Profile updated successfully!");
+        
+        // Update the auth store with the new user data
+        setUser(updatedUser);
       },
       onError: (error) => {
-        toast.dismiss(loadingToast);
-        toast.error("Failed to update profile");
         console.error("Error updating profile:", error);
+        toast.dismiss(loadingToast);
+        toast.error("Failed to update profile. Please try again.");
       },
     });
   };
@@ -193,7 +192,9 @@ export function UserSettingsForm({ user }: { user: User }) {
         updateUser(
           { image: response.data.downloadUrl },
           {
-            onSuccess: () => {
+            onSuccess: (updatedUser) => {
+              // Update the auth store with the new user data
+              setUser(updatedUser);
               toast.dismiss(loadingToast);
               toast.success("Profile picture updated successfully");
             },
@@ -232,7 +233,9 @@ export function UserSettingsForm({ user }: { user: User }) {
       updateUser(
         { stellarAccount: "" },
         {
-          onSuccess: () => {
+          onSuccess: (updatedUser) => {
+            // Update the auth store with the new user data
+            setUser(updatedUser);
             toast.success("Wallet disconnected and removed from your profile");
           },
           onError: (error) => {
@@ -261,8 +264,7 @@ export function UserSettingsForm({ user }: { user: User }) {
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const value = e.target.value;
-    setFormData((prev) => ({ ...prev, stellarAccount: value }));
-    validateStellarAccount(value);
+    setStellarError(null);
   };
 
   const handleRemoveProfilePicture = () => {
@@ -281,7 +283,9 @@ export function UserSettingsForm({ user }: { user: User }) {
     updateUser(
       { image: identicon },
       {
-        onSuccess: () => {
+        onSuccess: (updatedUser) => {
+          // Update the auth store with the new user data
+          setUser(updatedUser);
           // Dismiss the specific loading toast
           toast.dismiss(loadingToast);
           toast.success("Profile picture removed successfully");
@@ -328,7 +332,7 @@ export function UserSettingsForm({ user }: { user: User }) {
                     ) : (
                       <Image
                         src={`https://api.dicebear.com/9.x/identicon/svg?seed=${
-                          user.id || formData.stellarAccount || "user"
+                          user.id || address || "user"
                         }`}
                         alt="Profile"
                         width={96}
@@ -462,7 +466,7 @@ export function UserSettingsForm({ user }: { user: User }) {
                 <div className="relative w-full">
                   <input
                     type="text"
-                    value={formData.stellarAccount || ""}
+                    value={address || ""}
                     onChange={handleStellarAccountChange}
                     className={`w-full h-[47.43px] bg-[#0D0D0F] rounded-[11.86px] px-4
                            text-base font-semibold text-white/40 leading-6 border ${
@@ -471,9 +475,9 @@ export function UserSettingsForm({ user }: { user: User }) {
                     placeholder="Enter your Stellar account address"
                     disabled={isPending || isConnecting}
                   />
-                  {formData.stellarAccount && !stellarError && (
+                  {address && !stellarError && (
                     <a
-                      href={`https://stellar.expert/explorer/testnet/account/${formData.stellarAccount}`}
+                      href={`https://stellar.expert/explorer/testnet/account/${address}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
@@ -493,39 +497,21 @@ export function UserSettingsForm({ user }: { user: User }) {
                 )}
                 <button
                   type="button"
-                  onClick={handleConnectWallet}
+                  onClick={connectWallet}
                   disabled={isPending || isConnecting}
-                  className="h-[47.43px] bg-[#0D0D0F] rounded-[11.86px] px-4
-                         text-base font-semibold text-white/70 leading-6 border border-white/20
-                         hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+                  className="h-[47.43px] bg-[#0D0D0F] rounded-[11.86px] px-4 text-base font-semibold text-white/70 leading-6 border border-white/20 hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
                 >
-                  {isConnecting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Connecting Wallet...
-                    </>
-                  ) : isConnected ? (
-                    <>
-                      <Link className="h-4 w-4" />
-                      Wallet Connected
-                    </>
-                  ) : (
-                    <>
-                      <Link className="h-4 w-4" />
-                      Connect Stellar Wallet
-                    </>
-                  )}
+                  <Link className="h-4 w-4" />
+                  Connect Stellar Wallet
                 </button>
 
                 {/* Show the disconnect wallet button if user has a wallet address stored in profile */}
-                {(isConnected || formData.stellarAccount) && (
+                {(isConnected || address) && (
                   <button
                     type="button"
-                    onClick={handleDisconnectWallet}
+                    onClick={disconnectWallet}
                     disabled={isPending}
-                    className="h-[47.43px] bg-transparent rounded-[11.86px] px-4
-                           text-base font-semibold text-red-400/70 leading-6 border border-red-400/20
-                           hover:bg-red-400/5 transition-colors flex items-center justify-center gap-2"
+                    className="h-[47.43px] bg-transparent rounded-[11.86px] px-4 text-base font-semibold text-red-400/70 leading-6 border border-red-400/20 hover:bg-red-400/5 transition-colors flex items-center justify-center gap-2"
                   >
                     Disconnect & Remove Wallet
                   </button>

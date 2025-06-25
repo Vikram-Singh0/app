@@ -35,8 +35,6 @@ export interface ExchangeRateResponse {
 }
 
 export interface ConversionResponse {
-  originalAmount: number;
-  originalCurrency: string;
   convertedAmount: number;
   targetCurrency: string;
   rate: number;

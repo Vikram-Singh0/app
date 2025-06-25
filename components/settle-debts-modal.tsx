@@ -2,7 +2,6 @@
 
 import { X, Loader2, ChevronDown, MinusCircle } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useWallet } from "@/hooks/useWallet";
 import { motion, AnimatePresence } from "framer-motion";
 import { fadeIn, scaleIn } from "@/utils/animations";
 import { toast } from "sonner";
@@ -15,6 +14,11 @@ import { QueryKeys } from "@/lib/constants";
 import { useGetFriends } from "@/features/friends/hooks/use-get-friends";
 import { useGetAllGroups } from "@/features/groups/hooks/use-create-group";
 import { useBalances } from "@/features/balances/hooks/use-balances";
+import ResolverSelector, { Option as TokenOption } from "./ResolverSelector";
+import { useOrganizedCurrencies } from "@/features/currencies/hooks/use-currencies";
+import { useAuthStore } from "@/stores/authStore";
+import { useWallet } from "@/hooks/useWallet";
+import { useUserWallets } from "@/features/wallets/hooks/use-wallets";
 
 // Define a type for friend data coming from the API
 interface FriendWithBalances {
@@ -45,8 +49,16 @@ export function SettleDebtsModal({
   showIndividualView = false,
   selectedFriendId = null,
 }: SettleDebtsModalProps) {
-  const { address, connectWallet, disconnectWallet, isConnected } = useWallet();
-  const [selectedToken, setSelectedToken] = useState("USDT");
+  const user = useAuthStore((state) => state.user);
+  const {
+    isConnected: walletConnected,
+    isConnecting,
+    connectWallet,
+    freighterAvailable,
+    isHydrated,
+    wallet,
+  } = useWallet();
+  const [selectedToken, setSelectedToken] = useState<TokenOption | null>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [excludedFriendIds, setExcludedFriendIds] = useState<string[]>([]);
   const [totalAmount, setTotalAmount] = useState("0");
@@ -57,14 +69,39 @@ export function SettleDebtsModal({
   const { data: friends } = useGetFriends();
   const { data: groups } = useGetAllGroups();
   const { data: balanceData } = useBalances();
+  const { data: organizedCurrencies } = useOrganizedCurrencies();
+  const { data: walletData } = useUserWallets();
+  const wallets = walletData?.accounts || [];
+  const stellarWallet = wallets.find(w => w.chainId === "stellar");
+  const userStellarAddress = stellarWallet?.address || null;
   useHandleEscapeToCloseModal(isOpen, onClose);
+
+  // Debug: Log user data
+  useEffect(() => {
+    console.log("[SettleDebtsModal] User data debug:", {
+      user: user ? {
+        id: user.id,
+        name: user.name,
+        stellarAccount: user.stellarAccount,
+        hasStellarAccount: !!user.stellarAccount
+      } : null,
+      userStellarAddress,
+      userFromStore: user
+    });
+  }, [user, userStellarAddress]);
 
   // Reset excluded friends when modal opens/closes
   useEffect(() => {
     if (isOpen) {
+      console.log("[SettleDebtsModal] Modal opened", { 
+        groupId, 
+        showIndividualView, 
+        selectedFriendId,
+        userStellarAddress
+      });
       setExcludedFriendIds([]);
     }
-  }, [isOpen]);
+  }, [isOpen, groupId, showIndividualView, selectedFriendId, userStellarAddress]);
 
   // Set the selected user based on selectedFriendId prop
   useEffect(() => {
@@ -74,9 +111,11 @@ export function SettleDebtsModal({
         setSelectedUser(friend as unknown as User);
 
         // Calculate amount owed to this specific friend
-        const negativeBalance = friend.balances.find((b) => b.amount < 0);
-        if (negativeBalance) {
-          setIndividualAmount(Math.abs(negativeBalance.amount).toFixed(2));
+        const positiveBalance = friend.balances.find((b) => b.amount > 0);
+        if (positiveBalance) {
+          setIndividualAmount(positiveBalance.amount.toFixed(2));
+        } else {
+          setIndividualAmount("0");
         }
       }
     } else if (!showIndividualView) {
@@ -92,12 +131,41 @@ export function SettleDebtsModal({
     }
   }, [friends, balanceData]);
 
+  // Fetch available tokens
+  useEffect(() => {
+    if (isOpen && organizedCurrencies) {
+      // Pick the first chain token as default
+      const chainCurrencies = Object.values(organizedCurrencies.chainGroups || {}).flat();
+      if (chainCurrencies.length > 0) {
+        setSelectedToken({
+          id: chainCurrencies[0].id,
+          symbol: chainCurrencies[0].symbol,
+          name: chainCurrencies[0].name,
+          chainId: chainCurrencies[0].chainId,
+          type: chainCurrencies[0].type,
+        });
+      }
+    }
+  }, [isOpen, organizedCurrencies]);
+
+  // Update individualAmount when selectedUser changes
+  useEffect(() => {
+    if (selectedUser) {
+      const positiveBalance = (selectedUser as any).balances?.find((b: any) => b.amount > 0);
+      if (positiveBalance) {
+        setIndividualAmount(positiveBalance.amount.toFixed(2));
+      } else {
+        setIndividualAmount("0");
+      }
+    }
+  }, [selectedUser]);
+
   // Function to calculate total debts owed to all friends
   const calculateTotalDebts = (friendsList: FriendWithBalances[]) => {
     return friendsList.reduce((total, friend) => {
-      const negativeBalances = friend.balances.filter((b) => b.amount < 0);
-      const friendTotal = negativeBalances.reduce((sum: number, balance) => {
-        return sum + Math.abs(balance.amount);
+      const positiveBalances = friend.balances.filter((b) => b.amount > 0);
+      const friendTotal = positiveBalances.reduce((sum: number, balance) => {
+        return sum + balance.amount;
       }, 0);
       return total + friendTotal;
     }, 0);
@@ -127,32 +195,37 @@ export function SettleDebtsModal({
   // Get friends with debts for showing in the modal
   const friendsWithDebts =
     friends?.filter((friend) =>
-      friend.balances.some((balance) => balance.amount < 0)
+      friend.balances.some((balance) => balance.amount > 0)
     ) || [];
 
   const handleSettleOne = async (settleWith: User) => {
-    if (!address) {
-      toast.error("Please connect your wallet to settle debts");
+    if (!wallet) {
+      toast.error("Please connect your wallet to sign the transaction.");
+      connectWallet(); // Open the wallet modal
+      return;
+    }
+    console.log("[SettleDebtsModal] Settle One clicked", { settleWith });
+    console.log("[SettleDebtsModal] User data:", { 
+      userStellarAddress
+    });
+    
+    if (!selectedToken) {
+      toast.error("Please select a payment token");
       return;
     }
 
-    if (!settleWith.stellarAccount) {
-      toast.error(`${settleWith.name} doesn't have a Stellar wallet connected`);
-      return;
-    }
-
-    // Create a payload that matches the expected structure by the API
     const payload = {
       groupId,
-      address,
+      address: userStellarAddress, // Use the stored address from database
       settleWithId: settleWith.id,
+      selectedTokenId: selectedToken.id,
+      selectedChainId: selectedToken.chainId,
+      amount: parseFloat(individualAmount),
     };
-
-    // Include amount information in the request
-    const amountValue = parseFloat(individualAmount);
-
+    console.log("[SettleDebtsModal] Calling settleDebtMutation.mutate (one)", payload);
     settleDebtMutation.mutate(payload, {
       onSuccess: () => {
+        console.log("[SettleDebtsModal] Settle One success");
         toast.success(`Successfully settled debt with ${settleWith.name}`);
 
         queryClient.invalidateQueries({
@@ -164,45 +237,34 @@ export function SettleDebtsModal({
 
         onClose();
       },
+      onError: (err) => {
+        console.error("[SettleDebtsModal] Settle One error", err);
+        toast.error("Failed to settle debt", {
+          description: "Please try again or check your wallet connection.",
+        });
+      }
     });
   };
 
   const handleSettleAll = async () => {
-    if (!address) {
-      toast.error("Please connect your wallet to settle debts");
+    if (!wallet || !userStellarAddress) {
+      toast.error("Please connect your wallet to sign the transaction.");
+      connectWallet();
       return;
     }
-
-    // Filter out excluded friends
-    const friendsToSettle = friendsWithDebts.filter(
-      (friend) => !excludedFriendIds.includes(friend.id)
-    );
-
-    // Check if any of the users don't have a stellar account
-    const usersWithoutStellarAccount = friendsToSettle
-      .filter((friend) => {
-        // Use type assertion to check for stellarAccount property
-        const user = friend as FriendWithBalances;
-        return !user.stellarAccount;
-      })
-      .map((friend) => friend.name);
-
-    if (usersWithoutStellarAccount.length > 0) {
-      toast.error(`Some users don't have Stellar wallets`, {
-        description: `${usersWithoutStellarAccount.join(
-          ", "
-        )} need to connect their Stellar wallets first.`,
-      });
+    if (!selectedToken) {
+      toast.error("Please select a payment token");
       return;
     }
 
     // Create a payload that matches the expected structure by the API
     const payload = {
       groupId,
-      address,
+      address: userStellarAddress,
+      selectedTokenId: selectedToken.id,
+      selectedChainId: selectedToken.chainId,
+      amount: parseFloat(totalAmount), // or remainingTotal if that's the correct value
     };
-
-    // The amount and excludedUserIds can be passed in the query parameters or handled by the backend
     settleDebtMutation.mutate(payload, {
       onSuccess: () => {
         queryClient.invalidateQueries({
@@ -215,6 +277,11 @@ export function SettleDebtsModal({
         onClose();
         toast.success("Successfully settled debts");
       },
+      onError: (err) => {
+        toast.error("Failed to settle debts", {
+          description: "Please try again or check your wallet connection.",
+        });
+      }
     });
   };
 
@@ -223,7 +290,7 @@ export function SettleDebtsModal({
   // Get the selected user's balance for individual settlement
   const selectedUserBalance = selectedUser
     ? (selectedUser as unknown as FriendWithBalances).balances.find(
-        (balance) => balance.amount < 0
+        (balance) => balance.amount > 0
       )?.amount || 0
     : 0;
 
@@ -268,6 +335,17 @@ export function SettleDebtsModal({
                 </div>
 
                 <div className="space-y-4 sm:space-y-6">
+                  {/* Show user's stored Stellar address */}
+                  {userStellarAddress ? (
+                    <div className="text-sm text-white/70">
+                      Using address: {userStellarAddress.slice(0, 25)}...
+                    </div>
+                  ) : (
+                    <div className="text-sm text-red-400">
+                      Please add your Stellar wallet address in settings first.
+                    </div>
+                  )}
+
                   <div>
                     <div className="text-base sm:text-lg font-medium text-white mb-3 sm:mb-4">
                       Choose Payment Token
@@ -276,7 +354,7 @@ export function SettleDebtsModal({
                     <div className="relative mb-3 sm:mb-4">
                       <button className="w-full flex items-center justify-between rounded-full h-12 sm:h-14 px-4 sm:px-6 bg-transparent border border-white/10 text-white">
                         <span className="text-base sm:text-lg">
-                          {selectedToken}
+                          {selectedToken?.symbol || "Token"}
                         </span>
                         <ChevronDown className="h-4 w-4 sm:h-5 sm:w-5 text-white/50" />
                       </button>
@@ -291,7 +369,7 @@ export function SettleDebtsModal({
                           className="bg-transparent outline-none text-base sm:text-lg w-full"
                         />
                         <span className="text-base sm:text-lg text-white/50">
-                          {selectedToken}
+                          {selectedToken?.symbol || "Token"}
                         </span>
                       </div>
                     </div>
@@ -300,14 +378,14 @@ export function SettleDebtsModal({
                   <div className="space-y-3 sm:space-y-5 max-h-[200px] sm:max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                     {friendsWithDebts
                       .filter((friend) =>
-                        friend.balances.some((b) => b.amount < 0)
+                        friend.balances.some((b) => b.amount > 0)
                       )
                       .map((friend, index) => {
-                        const negativeBalance = friend.balances.find(
-                          (b) => b.amount < 0
+                        const positiveBalance = friend.balances.find(
+                          (b) => b.amount > 0
                         );
-                        const amount = negativeBalance
-                          ? Math.abs(negativeBalance.amount)
+                        const amount = positiveBalance
+                          ? positiveBalance.amount
                           : 0;
                         const isExcluded = excludedFriendIds.includes(
                           friend.id
@@ -373,7 +451,7 @@ export function SettleDebtsModal({
                       })}
 
                     {friendsWithDebts.filter((friend) =>
-                      friend.balances.some((b) => b.amount < 0)
+                      friend.balances.some((b) => b.amount > 0)
                     ).length === 0 && (
                       <div className="text-center text-white/60 py-4 text-mobile-sm sm:text-base">
                         No debts to settle
@@ -384,11 +462,15 @@ export function SettleDebtsModal({
 
                 <button
                   className="w-full mt-8 sm:mt-12 flex items-center justify-center gap-2 text-mobile-base sm:text-lg font-medium h-10 sm:h-14 bg-white text-black rounded-full hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={handleSettleAll}
+                  onClick={() => {
+                    console.log("[SettleDebtsModal] Settle All button clicked", { isPending, remainingTotal, friendsWithDebtsLength: friendsWithDebts.length });
+                    handleSettleAll();
+                  }}
                   disabled={
                     isPending ||
                     remainingTotal <= 0 ||
-                    friendsWithDebts.length === 0
+                    friendsWithDebts.length === 0 ||
+                    !userStellarAddress
                   }
                 >
                   {isPending ? (
@@ -444,12 +526,10 @@ export function SettleDebtsModal({
                     </div>
 
                     <div className="relative mb-3 sm:mb-4">
-                      <button className="w-full flex items-center justify-between rounded-full h-12 sm:h-14 px-4 sm:px-6 bg-transparent border border-white/10 text-white">
-                        <span className="text-base sm:text-lg">
-                          {selectedToken}
-                        </span>
-                        <ChevronDown className="h-4 w-4 sm:h-5 sm:w-5 text-white/50" />
-                      </button>
+                      <ResolverSelector
+                        value={selectedToken || undefined}
+                        onChange={(option) => setSelectedToken(option || null)}
+                      />
                     </div>
 
                     <div className="relative">
@@ -461,7 +541,7 @@ export function SettleDebtsModal({
                           className="bg-transparent outline-none text-base sm:text-lg w-full"
                         />
                         <span className="text-base sm:text-lg text-white/50">
-                          {selectedToken}
+                          {selectedToken?.symbol || "Token"}
                         </span>
                       </div>
                     </div>
@@ -513,7 +593,9 @@ export function SettleDebtsModal({
                   disabled={
                     isPending ||
                     !selectedUser ||
-                    parseFloat(individualAmount) <= 0
+                    parseFloat(individualAmount) <= 0 ||
+                    !selectedToken ||
+                    !userStellarAddress
                   }
                 >
                   {isPending ? (

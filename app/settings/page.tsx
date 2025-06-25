@@ -44,6 +44,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getUser } from "@/features/user/api/client";
 
 // Base API URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -85,6 +86,19 @@ export default function SettingsPage() {
   const { data: walletData, isLoading: isLoadingWallets } = useUserWallets();
   const { mutate: addWallet, isPending: isAddingWallet } = useAddWallet();
   const { mutate: setWalletAsPrimary } = useSetWalletAsPrimary();
+
+  const handleWalletAdded = async () => {
+    try {
+      const updatedUser = await getUser();
+      if (updatedUser) {
+        setUser(updatedUser);
+        console.log("User profile updated in auth store after adding wallet.");
+      }
+    } catch (error) {
+      console.error("Failed to refetch user after adding wallet", error);
+      toast.error("Could not refresh user data. Please reload the page.");
+    }
+  };
 
   // Process wallet data for UI
   const wallets = walletData?.accounts || [];
@@ -830,6 +844,7 @@ export default function SettingsPage() {
       <AddWalletModal
         isOpen={isWalletModalOpen}
         onClose={() => setIsWalletModalOpen(false)}
+        onWalletAdded={handleWalletAdded}
       />
     </motion.div>
   );

@@ -105,7 +105,9 @@ export function TransactionRequestList({
                       </p>
                       <p className="text-mobile-sm sm:text-base text-white/60">
                         {reminder.reminderType === "USER"
-                          ? `$${(reminder.amount || 0).toFixed(2)}`
+                          ? (reminder.amount && reminder.amount > 0
+                              ? `$${reminder.amount.toFixed(2)}`
+                              : reminder.content || "Requested payment")
                           : reminder.split && reminder.split.expenseParticipants && reminder.split.expenseParticipants.length > 0
                             ? `$${reminder.split.expenseParticipants[0].amount.toFixed(2)}`
                             : reminder.split

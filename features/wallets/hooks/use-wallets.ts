@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useAuthStore } from "@/stores/authStore";
+import { getUser } from "@/features/user/api/client";
 import {
   addWallet,
   getAvailableChains,
@@ -39,12 +41,15 @@ export const useAvailableChains = () => {
 // Hook to add a wallet
 export const useAddWallet = () => {
   const queryClient = useQueryClient();
+  const { setUser } = useAuthStore();
 
   return useMutation({
     mutationFn: addWallet,
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Wallet added successfully");
-      queryClient.invalidateQueries({ queryKey: [WALLET_QUERY_KEYS.WALLETS] });
+      await queryClient.invalidateQueries({ queryKey: [WALLET_QUERY_KEYS.WALLETS] });
+      const user = await getUser();
+      setUser(user);
     },
     onError: (error) => {
       console.error("Error adding wallet:", error);

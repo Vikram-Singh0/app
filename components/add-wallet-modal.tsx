@@ -243,7 +243,7 @@ export const AddWalletModal = ({ isOpen, onClose }: AddWalletModalProps) => {
               // Add the wallet using our mutation hook
               addWalletMutation(
                 {
-                  chainId: "xlm", // Use xlm for Stellar chain ID
+                  chainId: "stellar", // Use 'stellar' for Stellar chain ID
                   address: publicKey,
                   isPrimary: false,
                 },
@@ -438,9 +438,7 @@ export const AddWalletModal = ({ isOpen, onClose }: AddWalletModalProps) => {
                         : "border-white/10 cursor-not-allowed opacity-50"
                     }`}
                     onClick={handleConnectWallet}
-                    disabled={
-                      isConnectingWallet || selectedChain?.id !== "stellar"
-                    }
+                    disabled={isConnectingWallet}
                   >
                     {isConnectingWallet ? (
                       <>
