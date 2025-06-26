@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { QueryKeys } from "@/lib/constants";
 import { useAuthStore } from "@/stores/authStore";
+import { formatCurrency } from "@/utils/formatters";
 
 export function GroupInfoHeader({
   groupId,
@@ -32,26 +33,33 @@ export function GroupInfoHeader({
 
   if (!group) return null;
 
-  // Calculate total balance
-  const calculateTotalBalance = () => {
-    // Get balances for the current user
+  // Calculate balances by currency for the current user
+  const getBalancesByCurrency = () => {
     const userBalances = group.groupBalances.filter(
       (balance) => balance.userId === user?.id
     );
-
-    // Sum up all balances
-    const totalBalance = userBalances.reduce(
-      (sum, balance) => sum + balance.amount,
-      0
-    );
-
-    return {
-      amount: Math.abs(totalBalance),
-      type: totalBalance > 0 ? "owe" : "owed",
-    };
+    // Group by currency
+    const currencyMap: Record<string, number> = {};
+    userBalances.forEach((balance) => {
+      if (!currencyMap[balance.currency]) {
+        currencyMap[balance.currency] = 0;
+      }
+      currencyMap[balance.currency] += balance.amount;
+    });
+    return currencyMap;
   };
 
-  const debtInfo = calculateTotalBalance();
+  const balancesByCurrency = getBalancesByCurrency();
+  // Split into positive (owed to user) and negative (user owes)
+  const owed: { currency: string; amount: number }[] = [];
+  const owe: { currency: string; amount: number }[] = [];
+  Object.entries(balancesByCurrency).forEach(([currency, amount]) => {
+    if (amount > 0) {
+      owed.push({ currency, amount });
+    } else if (amount < 0) {
+      owe.push({ currency, amount: Math.abs(amount) });
+    }
+  });
 
   const handleAddExpenseClick = () => {
     setIsAddingExpense(true);
@@ -86,20 +94,26 @@ export function GroupInfoHeader({
             {group.name}
           </h1>
           <p className="text-mobile-base sm:text-lg text-white/70">
-            {debtInfo.type === "owed" ? (
+            {owed.length > 0 ? (
               <>
-                Overall, you are owed{" "}
+                Overall, you are owed {" "}
+                <span className="text-[#FF4444]">
+                  {owed
+                    .map((b) => formatCurrency(b.amount, b.currency))
+                    .join(", ")}
+                </span>
+              </>
+            ) : owe.length > 0 ? (
+              <>
+                Overall, you owe {" "}
                 <span className="text-[#53e45d]">
-                  ${debtInfo.amount.toFixed(2)}
+                  {owe
+                    .map((b) => formatCurrency(b.amount, b.currency))
+                    .join(", ")}
                 </span>
               </>
             ) : (
-              <>
-                Overall, you owe{" "}
-                <span className="text-[#FF4444]">
-                  ${debtInfo.amount.toFixed(2)}
-                </span>
-              </>
+              <>You're all settled up!</>
             )}
           </p>
         </div>

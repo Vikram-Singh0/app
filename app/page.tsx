@@ -27,6 +27,7 @@ import { useAuthStore } from "@/stores/authStore";
 import Link from "next/link";
 import { useGetFriends } from "@/features/friends/hooks/use-get-friends";
 import { toast } from "sonner";
+import { formatCurrency } from "@/utils/formatters";
 
 export default function Page() {
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
@@ -124,7 +125,18 @@ export default function Page() {
               <div>
                 Overall, you owe{" "}
                 <span className="font-inter font-semibold text-[24px] leading-[100%] tracking-[-0.04em] text-[#FF4444]">
-                  {youOwe.map((debt) => `$${debt.amount}`).join(", ")}
+                  {youOwe
+                    .map((debt) => formatCurrency(debt.amount, debt.currency))
+                    .join(", ")}
+                </span>
+              </div>
+            ) : youGet.length > 0 ? (
+              <div>
+                Overall, you are owed{" "}
+                <span className="font-inter font-semibold text-[24px] leading-[100%] tracking-[-0.04em] text-[#53e45d]">
+                  {youGet
+                    .map((debt) => formatCurrency(debt.amount, debt.currency))
+                    .join(", ")}
                 </span>
               </div>
             ) : (
