@@ -54,8 +54,6 @@ export function UserSettingsForm({ user }: { user: User }) {
     isConnecting,
     connectWallet,
     disconnectWallet,
-    freighterAvailable,
-    isHydrated,
   } = useWallet();
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
@@ -159,8 +157,11 @@ export function UserSettingsForm({ user }: { user: User }) {
         toast.dismiss(loadingToast);
         toast.success("Profile updated successfully!");
         
-        // Update the auth store with the new user data
-        setUser(updatedUser);
+        // Update the auth store with the new user data by merging with existing user
+        setUser({
+          ...user,
+          ...updatedUser,
+        });
       },
       onError: (error) => {
         console.error("Error updating profile:", error);
@@ -193,8 +194,11 @@ export function UserSettingsForm({ user }: { user: User }) {
           { image: response.data.downloadUrl },
           {
             onSuccess: (updatedUser) => {
-              // Update the auth store with the new user data
-              setUser(updatedUser);
+              // Update the auth store with the new user data by merging with existing user
+              setUser({
+                ...user,
+                ...updatedUser,
+              });
               toast.dismiss(loadingToast);
               toast.success("Profile picture updated successfully");
             },
@@ -234,8 +238,11 @@ export function UserSettingsForm({ user }: { user: User }) {
         { stellarAccount: "" },
         {
           onSuccess: (updatedUser) => {
-            // Update the auth store with the new user data
-            setUser(updatedUser);
+            // Update the auth store with the new user data by merging with existing user
+            setUser({
+              ...user,
+              ...updatedUser,
+            });
             toast.success("Wallet disconnected and removed from your profile");
           },
           onError: (error) => {
@@ -284,8 +291,11 @@ export function UserSettingsForm({ user }: { user: User }) {
       { image: identicon },
       {
         onSuccess: (updatedUser) => {
-          // Update the auth store with the new user data
-          setUser(updatedUser);
+          // Update the auth store with the new user data by merging with existing user
+          setUser({
+            ...user,
+            ...updatedUser,
+          });
           // Dismiss the specific loading toast
           toast.dismiss(loadingToast);
           toast.success("Profile picture removed successfully");

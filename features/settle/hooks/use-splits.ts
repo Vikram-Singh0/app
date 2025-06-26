@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { settleDebt } from "../api/client";
-import { QueryKeys } from "@/lib/constants";
+import { QueryKeys, invalidateSettlementCaches } from "@/lib/constants";
 import { useWallet } from "@/hooks/useWallet";
 import { toast } from "sonner";
 
@@ -14,15 +14,11 @@ export const useSettleDebt = (groupId: string) => {
       return settleDebt(payload, wallet || undefined);
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({
-        queryKey: [QueryKeys.GROUPS, groupId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: [QueryKeys.BALANCES],
-      });
-      queryClient.invalidateQueries({
-        queryKey: [QueryKeys.FRIENDS],
-      });
+      // Add a small delay to ensure backend processing is complete
+      setTimeout(() => {
+        // Use the utility function for comprehensive cache invalidation
+        invalidateSettlementCaches(queryClient, groupId);
+      }, 1000); // 1 second delay
     },
     onError: (error: any) => {
       let errorMsg = "Unknown error";

@@ -54,8 +54,6 @@ export function SettleDebtsModal({
     isConnected: walletConnected,
     isConnecting,
     connectWallet,
-    freighterAvailable,
-    isHydrated,
     wallet,
   } = useWallet();
   const [selectedToken, setSelectedToken] = useState<TokenOption | null>(null);
@@ -141,7 +139,7 @@ export function SettleDebtsModal({
           id: chainCurrencies[0].id,
           symbol: chainCurrencies[0].symbol,
           name: chainCurrencies[0].name,
-          chainId: chainCurrencies[0].chainId,
+          chainId: chainCurrencies[0].chainId || undefined,
           type: chainCurrencies[0].type,
         });
       }
@@ -204,6 +202,12 @@ export function SettleDebtsModal({
       connectWallet(); // Open the wallet modal
       return;
     }
+    
+    if (!userStellarAddress) {
+      toast.error("Please add your Stellar wallet address in settings first.");
+      return;
+    }
+    
     console.log("[SettleDebtsModal] Settle One clicked", { settleWith });
     console.log("[SettleDebtsModal] User data:", { 
       userStellarAddress
@@ -227,14 +231,6 @@ export function SettleDebtsModal({
       onSuccess: () => {
         console.log("[SettleDebtsModal] Settle One success");
         toast.success(`Successfully settled debt with ${settleWith.name}`);
-
-        queryClient.invalidateQueries({
-          queryKey: [QueryKeys.GROUPS, groupId],
-        });
-
-        queryClient.invalidateQueries({ queryKey: [QueryKeys.GROUPS] });
-        queryClient.invalidateQueries({ queryKey: [QueryKeys.BALANCES] });
-
         onClose();
       },
       onError: (err) => {
@@ -267,13 +263,6 @@ export function SettleDebtsModal({
     };
     settleDebtMutation.mutate(payload, {
       onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: [QueryKeys.GROUPS, groupId],
-        });
-
-        queryClient.invalidateQueries({ queryKey: [QueryKeys.GROUPS] });
-        queryClient.invalidateQueries({ queryKey: [QueryKeys.BALANCES] });
-
         onClose();
         toast.success("Successfully settled debts");
       },
