@@ -23,7 +23,7 @@ const reminderResponseSchema = z.object({
   senderId: z.string(),
   receiverId: z.string(),
   reminderType: z.string(),
-  splitId: z.string().nullable(),
+  splitId: z.string().nullable().optional(),
   content: z.string().nullable(),
   status: z.string(),
   createdAt: z.string(),
@@ -43,7 +43,7 @@ const reminderResponseSchema = z.object({
     expenseParticipants: z.array(z.object({
       amount: z.number(),
     })).optional(),
-  }).nullable(),
+  }).nullable().optional(),
   amount: z.number().optional(),
 });
 
